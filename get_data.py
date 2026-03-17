@@ -26,13 +26,20 @@ def get_mask_from_indices(indices_file, total_length):
 
 
 
-def get_data_from_mask(file_name, scan_number, name_X, mask):
+def get_data_from_mask(file_name, scan_number, variables, mask):
     
+    data_list = []
+
     with h5py.File(file_name, "r") as f:
-        dataX = f.get(scan_number+'.1'+'/measurement/'+ name_X)
-        data_array = np.asarray(dataX)
+        for var in variables:
+            
+            dataX = f.get(scan_number+'.1'+'/measurement/'+ var)
+            
+            data_list.append(np.asarray(dataX))
     
-    masked_data = data_array[mask]
+    data_array = np.array(data_list)  # Append the data to the array
+    
+    masked_data = data_array[:, mask]
     
     return masked_data
 
@@ -53,17 +60,19 @@ def main():
 
     File=FileDir+FileName
 
-    name_X = 'CH4' #Also can be 'Ar', 'CH4', 'H2', 'Pressure' depending on which data you want to get/plot
+    name_X = ['CH4', 'Ar', 'H2', 'Pressure']
 
     
     total_length = get_total_length(File, Scan)
     mask = get_mask_from_indices(indices_file, total_length)
     masked_data = get_data_from_mask(File, Scan, name_X, mask)
 
-    plt.plot(masked_data)
+    i = 1 
+
+    plt.plot(masked_data[i])
     plt.title('Masked Data Plot')
     plt.xlabel('Index')
-    plt.ylabel('Value')
+    plt.ylabel(f'{name_X[i]}')
     plt.show()
 
 
