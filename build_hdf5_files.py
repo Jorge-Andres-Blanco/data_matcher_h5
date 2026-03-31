@@ -1,7 +1,36 @@
 import h5py
-from get_data import get_mask_from_indices, get_total_length
 import numpy as np
 
+
+def get_total_length(file_name, scan_number):
+
+    with h5py.File(file_name, "r") as f:
+        dataX = f.get(scan_number+'.1'+'/measurement/epoch')
+        total_length = len(np.asarray(dataX))
+
+    return total_length
+
+
+
+def get_mask_from_indices(indices_file, total_length):
+    
+    with open(indices_file, 'r') as f:
+        indices = [int(line.strip()) for line in f]
+    
+    mask = np.zeros(total_length, dtype=bool)
+
+    for i in indices:
+        rep = True
+    
+        while rep:
+            if mask[i] == False:
+
+                mask[i] = True
+                rep = False
+            else:
+                i += 1
+    
+    return mask
 
 def create_hybrid_skeleton(template_path, dest_path, source_data_file, scan_number, mask):
     
@@ -30,7 +59,17 @@ def create_hybrid_skeleton(template_path, dest_path, source_data_file, scan_numb
                 
                 if  (raw_data is not None) and (raw_data.shape) and ('basler' not in name):
                     
-                    masked_data = raw_data[mask] 
+                    var_name = name.split('/')[-2]
+                    
+                    print(f'{var_name}: shape in source file: {raw_data.shape}, shape of mask: {mask.shape}')
+
+                    if raw_data.shape[0] != mask.shape[0]:
+                        print(f"\nWarning: {var_name}.shape: {raw_data.shape} and mask.shape: {mask.shape}. Adjusting mask accordingly.\n")
+                        diff = abs(raw_data.shape[0] - mask.shape[0])
+                        adjusted_mask = mask[:-diff]  # Remove the last entry from the mask
+                        masked_data = raw_data[adjusted_mask]
+                    else:
+                        masked_data = raw_data[mask] 
                     
                     # Create the dataset WITH the masked data. 
                     dst_dataset = dest_f.create_dataset(
@@ -39,11 +78,14 @@ def create_hybrid_skeleton(template_path, dest_path, source_data_file, scan_numb
                         compression=obj.compression
                     )
 
-                    var_name = name.split('/')[-2]
+                    link_path = f'1.1/measurement/{var_name}'
+                    if link_path in dest_f:
+                        del dest_f[link_path]  # Objectively necessary: delete before overwriting
+                        
+                    dest_f[link_path] = h5py.SoftLink(f'/{name}') 
+                    print(f'{link_path} linked to {name}')
 
-                    dest_f[f'1.1/measurement/{var_name}'] = h5py.SoftLink(f'/{name}')  # Link to measurement group
-                    print(f'1.1/measurement/{var_name} linked to {name}')
-
+                    
                 else:
 
                     # It's not in source file, or not a measurement. Create the empty template.
@@ -52,6 +94,7 @@ def create_hybrid_skeleton(template_path, dest_path, source_data_file, scan_numb
                         shape=obj.shape,
                         dtype=obj.dtype,
                         chunks=obj.chunks,
+                        maxshape=obj.maxshape,
                         compression=obj.compression
                     )
                     
@@ -72,46 +115,44 @@ def print_structure(name, obj):
 
 
 
-def link_external_data(master_file_path, link_mapping):
+def link_external_data(dest_file_path, link_mapping):
     """
     Populates an HDF5 file with external links to other files.
     
     Parameters:
-    master_file_path (str): The file where the links will be created.
+    dest_file_path (str): The file where the links will be created.
     link_mapping (dict): A dictionary where:
         - Key: The internal path in the master file (e.g., 'group1/my_data')
         - Value: A tuple of (source_file_path, source_internal_path)
     """
-    with h5py.File(master_file_path, 'a') as master:
-        for master_path, (src_file, src_path) in link_mapping.items():
+    with h5py.File(dest_file_path, 'a') as dest:
+        for dest_internal_path, (src_file, src_path) in link_mapping.items():
             
             # Objectively necessary: You cannot overwrite an existing dataset with a link.
             # It must be deleted first if it exists.
-            if master_path in master:
-                del master[master_path]
-            
-            # Create the external link
-            master[master_path] = h5py.ExternalLink(src_file, src_path)
+            if dest_internal_path in dest:
+                del dest[dest_internal_path]
 
-        master['1.1/measurement/basler'] = h5py.SoftLink('/1.1/instrument/basler/image')
+            # Create the external link
+            dest[dest_internal_path] = h5py.ExternalLink(src_file, src_path)
+
+        dest['1.1/measurement/basler'] = h5py.SoftLink('/1.1/instrument/basler/image')
             
     print("External links successfully established.")
 
 
+
+
 def main():
 
-    template_file = '\\\\dfs\data\lmcat\inhouse\\20260316\ihma818\id10-surf\\20260301\RAW_DATA\CV_test_Gr_3_170326_camera\CV_test_Gr_3_170326_camera_0001\CV_test_Gr_3_170326_camera_0001.h5'
-    #/data/lmcat/inhouse/20260316/ihma818/id10-surf/20260301/RAW_DATA/CV_test_Gr_3_170326_camera/CV_test_Gr_3_170326_camera_0001/CV_test_Gr_3_170326_camera_0001.h5
+    template_file = '/data/lmcat/inhouse/20260316/ihma818/id10-surf/20260301/RAW_DATA/CV_test_Gr_3_170326_camera/CV_test_Gr_3_170326_camera_0001/CV_test_Gr_3_170326_camera_0001.h5'
 
-    source_exp_data_file='\\\\dfs\data\lmcat\inhouse\\20260309\ihma818\id10-surf\\20260301\RAW_DATA\CV_test_Gr_2_160326\CV_test_Gr_2_160326_0001\CV_test_Gr_2_160326_0001.h5'
+    source_exp_data_file='/data/lmcat/inhouse/20260309/ihma818/id10-surf/20260301/RAW_DATA/CV_test_Gr_2_160326/CV_test_Gr_2_160326_0001/CV_test_Gr_2_160326_0001.h5'
+    
     source_scan_number='2'
 
-    #FileDir='/data/lmcat/inhouse/20260309/ihma818/id10-surf/20260301/RAW_DATA/CV_test_Gr_1_120326/CV_test_Gr_1_120326_0002/' #This is for Friday
-    #FileDir='/data/lmcat/inhouse/20260309/ihma818/id10-surf/20260301/RAW_DATA/CV_test_Gr_2_160326/CV_test_Gr_2_160326_0001/' #This is for Monday
-    # 'CV_test_Gr_1_120326_0002.h5' for Friday, 'CV_test_Gr_2_160326_0001.h5' for Monday
-    # Scan '5' for Friday, '2' for Monday
 
-    source_camera_data_file='\\\\dfs\data\lmcat\inhouse\\20260316\ihma818\id10-surf\\20260301\RAW_DATA\CV_test_Gr_2_160326_camera\CV_test_Gr_2_160326_camera_0001\CV_test_Gr_2_160326_camera_0001.h5'
+    source_camera_data_file='/data/lmcat/inhouse/20260316/ihma818/id10-surf/20260301/RAW_DATA/CV_test_Gr_2_160326_camera/CV_test_Gr_2_160326_camera_0001/CV_test_Gr_2_160326_camera_0001.h5'
     source_camera_scan_number='1'
 
 

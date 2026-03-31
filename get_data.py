@@ -67,7 +67,7 @@ def main():
     mask = get_mask_from_indices(indices_file, total_length)
     masked_data = get_data_from_mask(File, Scan, name_X, mask)
 
-    i = 0
+    i = 1 
 
     plt.plot(masked_data[i])
     plt.title('Masked Data Plot')
